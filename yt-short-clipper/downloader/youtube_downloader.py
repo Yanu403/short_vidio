@@ -17,11 +17,29 @@ class YouTubeDownloader:
     def download(self, url: str) -> Path:
         """Download video from URL and return local file path."""
         opts = {
-            "format": "bestvideo+bestaudio/best",
+            "format": "bv*+ba/best",
             "merge_output_format": "mp4",
             "outtmpl": str(self.download_dir / "%(id)s.%(ext)s"),
             "noplaylist": True,
             "quiet": False,
+
+    # bypass beberapa limit youtube
+            "nocheckcertificate": True,
+            "ignoreerrors": False,
+
+    # cookies untuk bypass bot check
+            "cookiefile": "cookies.txt",
+
+    # supaya lebih stabil
+            "retries": 10,
+            "fragment_retries": 10,
+
+    # pakai client android (lebih jarang diblokir)
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android"]
+                }
+            }
         }
 
         with YoutubeDL(opts) as ydl:
