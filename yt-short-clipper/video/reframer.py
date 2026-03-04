@@ -1,23 +1,21 @@
-"""Auto-reframing utilities for converting horizontal content to vertical."""
-
 from __future__ import annotations
 
 from pathlib import Path
-
 import cv2
-from mediapipe.python.solutions import face_detection
+
 
 class AutoReframer:
+    """Detect subject horizontal position to help vertical cropping."""
 
     def __init__(self):
-        self.face_detection = face_detection.FaceDetection(
-            model_selection=1,
-            min_detection_confidence=0.5,
+        self.face_detector = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
         )
 
-    def detect_subject_x_ratio(self, video_path: Path, sample_stride: int = 15) -> float:
-        """Return the normalized X center for most visible face across sampled frames."""
+    def detect_subject_x_ratio(self, video_path: Path, sample_stride: int = 10) -> float:
+        """Return normalized X center for detected faces."""
         cap = cv2.VideoCapture(str(video_path))
+
         centers: list[float] = []
         idx = 0
 
@@ -25,30 +23,28 @@ class AutoReframer:
             ok, frame = cap.read()
             if not ok:
                 break
+
             if idx % sample_stride != 0:
                 idx += 1
                 continue
 
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            result = self.face_detection.process(rgb)
-            if result.detections:
-                detection = result.detections[0]
-                bbox = detection.location_data.relative_bounding_box
-                centers.append(max(0.0, min(1.0, bbox.xmin + bbox.width / 2)))
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = self.face_detector.detectMultiScale(gray, 1.3, 5)
+
+            for (x, y, w, h) in faces:
+                center_x = x + w / 2
+                centers.append(center_x / frame.shape[1])
+
             idx += 1
 
         cap.release()
 
         if not centers:
             return 0.5
+
         return sum(centers) / len(centers)
 
-    @staticmethod
-    def crop_filter(subject_x_ratio: float, target_w: int, target_h: int) -> str:
-        """Build FFmpeg crop+scale filter for vertical framing."""
-        crop_expr = (
-            f"crop='min(iw,ih*{target_w}/{target_h})':ih:"
-            f"max(0,min(iw-min(iw,ih*{target_w}/{target_h}),"
-            f"{subject_x_ratio}*iw-min(iw,ih*{target_w}/{target_h})/2))':0"
-        )
-        return f"{crop_expr},scale={target_w}:{target_h}"
+    def crop_filter(self, subject_x: float, target_width: int, target_height: int) -> str:
+        """Return ffmpeg crop filter centered around subject."""
+        x = f"(in_w-{target_width})*{subject_x}"
+        return f"crop={target_width}:{target_height}:{x}:0"
