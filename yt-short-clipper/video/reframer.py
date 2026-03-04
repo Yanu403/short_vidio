@@ -5,15 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import cv2
-import mediapipe as mp
-
+from mediapipe.python.solutions import face_detection
 
 class AutoReframer:
-    """Detects dominant face X-position and computes FFmpeg crop coordinates."""
 
-    def __init__(self) -> None:
-        self.face_detection = mp.solutions.face_detection.FaceDetection(
-            model_selection=1, min_detection_confidence=0.5
+    def __init__(self):
+        self.face_detection = face_detection.FaceDetection(
+            model_selection=1,
+            min_detection_confidence=0.5,
         )
 
     def detect_subject_x_ratio(self, video_path: Path, sample_stride: int = 15) -> float:
