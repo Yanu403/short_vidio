@@ -17,7 +17,7 @@ class YouTubeDownloader:
     def download(self, url: str) -> Path:
         """Download video from URL and return local file path."""
         opts = {
-            "format": "bv*+ba/best",
+            "format": "bestvideo+bestaudio/best",
             "merge_output_format": "mp4",
             "outtmpl": str(self.download_dir / "%(id)s.%(ext)s"),
             "noplaylist": True,
@@ -37,7 +37,7 @@ class YouTubeDownloader:
     # pakai client android (lebih jarang diblokir)
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["android"]
+                    "player_client": ["android"," web"]
                 }
             }
         }
