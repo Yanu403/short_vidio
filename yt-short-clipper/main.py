@@ -21,6 +21,7 @@ from caption.caption_generator import CaptionGenerator
 from config import AppConfig, ConfigError, load_config
 from downloader.youtube_downloader import YouTubeDownloader
 from transcription.whisper_transcriber import TranscriptSegment, WhisperTranscriber, transcript_to_text
+from transcription.whisper_transcriber import WhisperTranscriber, transcript_to_text
 from video.clipper import FFmpegClipper
 from video.overlay_renderer import OverlayRenderer
 from video.reframer import AutoReframer
