@@ -48,10 +48,3 @@ class YouTubeDownloader:
             delay *= 2
 
     raise RuntimeError("Download failed")
-    
-        if downloaded.suffix != ".mp4":
-            mp4_path = downloaded.with_suffix(".mp4")
-            if mp4_path.exists():
-                return mp4_path
-
-        return downloaded
