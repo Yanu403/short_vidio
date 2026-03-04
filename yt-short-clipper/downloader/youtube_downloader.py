@@ -16,47 +16,39 @@ class YouTubeDownloader:
         self.download_dir.mkdir(parents=True, exist_ok=True)
 
     def download(self, url: str, max_retries: int = 3) -> Path:
-        """Download video from URL and return local file path."""
-        opts = {
-            "format": "bestvideo+bestaudio/best",
-            "merge_output_format": "mp4",
-            "outtmpl": str(self.download_dir / "%(id)s.%(ext)s"),
-            "noplaylist": True,
-            "quiet": False,
+    opts = {
+        "format": "bv*+ba/b",
+        "merge_output_format": "mp4",
+        "outtmpl": str(self.download_dir / "%(id)s.%(ext)s"),
+        "noplaylist": True,
+        "quiet": False,
+        "socket_timeout": 30,
+        "retries": 10,
+        "nocheckcertificate": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "tv", "web"]
+            }
+        },
+    }
 
-            "socket_timeout": 30,
-            "retries": 10,
+    delay = 1.0
 
-         # bypass youtube restrictions
-            "nocheckcertificate": True,
-            "ignoreerrors": False,
+    for attempt in range(max_retries):
+        try:
+            with YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                downloaded = Path(ydl.prepare_filename(info)).with_suffix(".mp4")
+            return downloaded
 
-    # cookies optional
-            "cookiefile": "cookies.txt",
+        except Exception:
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(delay)
+            delay *= 2
 
-    # IMPORTANT: fix youtube format extraction
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["web"]
-                }
-            },
-        }
-
-        delay = 1.0
-        for attempt in range(max_retries):
-            try:
-                with YoutubeDL(opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    downloaded = Path(ydl.prepare_filename(info))
-                break
-            except Exception:  # noqa: BLE001
-                if attempt == max_retries - 1:
-                    raise
-                time.sleep(delay)
-                delay *= 2
-        else:
-            raise RuntimeError("Download failed")
-
+    raise RuntimeError("Download failed")
+    
         if downloaded.suffix != ".mp4":
             mp4_path = downloaded.with_suffix(".mp4")
             if mp4_path.exists():
