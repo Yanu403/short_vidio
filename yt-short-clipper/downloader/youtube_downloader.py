@@ -23,9 +23,23 @@ class YouTubeDownloader:
             "outtmpl": str(self.download_dir / "%(id)s.%(ext)s"),
             "noplaylist": True,
             "quiet": False,
+
             "socket_timeout": 30,
             "retries": 10,
+
+         # bypass youtube restrictions
+            "nocheckcertificate": True,
+            "ignoreerrors": False,
+
+    # cookies optional
             "cookiefile": "cookies.txt",
+
+    # IMPORTANT: fix youtube format extraction
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "web"]
+                }
+            },
         }
 
         delay = 1.0
