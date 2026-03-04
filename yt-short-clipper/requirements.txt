@@ -1,0 +1,9 @@
+openai>=1.30.0
+yt-dlp>=2024.4.9
+faster-whisper>=1.0.3
+scenedetect[opencv]>=0.6.2
+opencv-python>=4.9.0.80
+mediapipe>=0.10.11
+moviepy>=1.0.3
+python-dotenv>=1.0.1
+tqdm>=4.66.0
