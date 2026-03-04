@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 
 from openai import OpenAI
@@ -38,6 +39,28 @@ class HighlightDetector:
         self.min_seconds = min_seconds
         self.max_seconds = max_seconds
 
+    def _request(self, prompt: str, max_retries: int = 3) -> dict:
+        """Call OpenAI with bounded retries and exponential backoff."""
+        delay = 1.0
+        for attempt in range(max_retries):
+            try:
+                response = self.client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    temperature=0.3,
+                    response_format={"type": "json_object"},
+                    messages=[
+                        {"role": "system", "content": "You produce valid JSON only."},
+                        {"role": "user", "content": prompt},
+                    ],
+                )
+                return json.loads(response.choices[0].message.content)
+            except Exception:  # noqa: BLE001
+                if attempt == max_retries - 1:
+                    raise
+                time.sleep(delay)
+                delay *= 2
+        return {"clips": []}
+
     def detect(self, transcript_text: str, max_clips: int = 15) -> list[HighlightSegment]:
         """Return virality-focused highlight segments as structured JSON."""
         prompt = f"""
@@ -53,16 +76,7 @@ Transcript:
 {transcript_text}
 """
 
-        response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            temperature=0.3,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": "You produce valid JSON only."},
-                {"role": "user", "content": prompt},
-            ],
-        )
-        payload = json.loads(response.choices[0].message.content)
+        payload = self._request(prompt)
 
         clips: list[HighlightSegment] = []
         for item in payload.get("clips", []):

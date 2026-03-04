@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from yt_dlp import YoutubeDL
@@ -14,7 +15,7 @@ class YouTubeDownloader:
         self.download_dir = download_dir
         self.download_dir.mkdir(parents=True, exist_ok=True)
 
-    def download(self, url: str) -> Path:
+    def download(self, url: str, max_retries: int = 3) -> Path:
         """Download video from URL and return local file path."""
         opts = {
             "format": "bestvideo+bestaudio/best",
@@ -22,29 +23,24 @@ class YouTubeDownloader:
             "outtmpl": str(self.download_dir / "%(id)s.%(ext)s"),
             "noplaylist": True,
             "quiet": False,
-
-    # bypass beberapa limit youtube
-            "nocheckcertificate": True,
-            "ignoreerrors": False,
-
-    # cookies untuk bypass bot check
-            "cookiefile": "cookies.txt",
-
-    # supaya lebih stabil
+            "socket_timeout": 30,
             "retries": 10,
-            "fragment_retries": 10,
-
-    # pakai client android (lebih jarang diblokir)
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["android"," web"]
-                }
-            }
         }
 
-        with YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            downloaded = Path(ydl.prepare_filename(info))
+        delay = 1.0
+        for attempt in range(max_retries):
+            try:
+                with YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    downloaded = Path(ydl.prepare_filename(info))
+                break
+            except Exception:  # noqa: BLE001
+                if attempt == max_retries - 1:
+                    raise
+                time.sleep(delay)
+                delay *= 2
+        else:
+            raise RuntimeError("Download failed")
 
         if downloaded.suffix != ".mp4":
             mp4_path = downloaded.with_suffix(".mp4")

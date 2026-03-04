@@ -7,7 +7,7 @@ import json
 import logging
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -21,13 +21,16 @@ from caption.caption_generator import CaptionGenerator
 from config import AppConfig, ConfigError, load_config
 from downloader.youtube_downloader import YouTubeDownloader
 from transcription.whisper_transcriber import TranscriptSegment, WhisperTranscriber, transcript_to_text
-from transcription.whisper_transcriber import WhisperTranscriber, transcript_to_text
 from video.clipper import FFmpegClipper
 from video.overlay_renderer import OverlayRenderer
 from video.reframer import AutoReframer
 from video.scene_detector import SceneDetector
 
 logger = logging.getLogger(__name__)
+
+
+class PipelineError(RuntimeError):
+    """Raised when pipeline validation fails."""
 
 
 def safe_unlink(path: Path) -> None:
@@ -74,13 +77,16 @@ class PipelineContext:
     audio_path: Path | None = None
     transcript: list[TranscriptSegment] | None = None
     transcript_text: str = ""
-    highlights: list[HighlightSegment] | None = None
-    scenes: list[tuple[float, float]] | None = None
+    highlights: list[HighlightSegment] = field(default_factory=list)
+    scenes: list[tuple[float, float]] = field(default_factory=list)
     vf_filter: str = ""
+    metadata_entries: list[dict] = field(default_factory=list)
 
 
 class DownloadStage:
     """Download source video."""
+
+    name = "DownloadStage"
 
     def __init__(self, downloader: YouTubeDownloader) -> None:
         self.downloader = downloader
@@ -93,6 +99,8 @@ class DownloadStage:
 
 class AudioExtractionStage:
     """Extract WAV audio for transcription."""
+
+    name = "AudioExtractionStage"
 
     @staticmethod
     def _extract_audio(video_path: Path, output_audio_path: Path) -> None:
@@ -124,6 +132,8 @@ class AudioExtractionStage:
 class TranscriptionStage:
     """Transcribe audio with caching."""
 
+    name = "TranscriptionStage"
+
     def __init__(self, transcriber: WhisperTranscriber, cache_dir: Path, model_size: str) -> None:
         self.transcriber = transcriber
         self.cache_dir = cache_dir
@@ -139,11 +149,15 @@ class TranscriptionStage:
             self.transcriber.save_cached(cache_path, transcript)
         ctx.transcript = transcript
         ctx.transcript_text = transcript_to_text(transcript)
+        if len(ctx.transcript_text) < 50:
+            raise PipelineError("Transcript too short")
         return ctx
 
 
 class HighlightDetectionStage:
     """Detect and rank viral highlights."""
+
+    name = "HighlightDetectionStage"
 
     def __init__(self, detector: HighlightDetector, max_clips: int) -> None:
         self.detector = detector
@@ -156,6 +170,8 @@ class HighlightDetectionStage:
 
 class SceneDetectionStage:
     """Detect scenes and compute crop filter."""
+
+    name = "SceneDetectionStage"
 
     def __init__(self, detector: SceneDetector, reframer: AutoReframer, target_width: int, target_height: int) -> None:
         self.detector = detector
@@ -189,7 +205,14 @@ class ClipProcessor:
         self.renderer = renderer
 
     def _align(self, highlight: HighlightSegment, scenes: list[tuple[float, float]]) -> tuple[float, float]:
-        return SceneDetector.align_range(highlight.start, highlight.end, scenes)
+        start, end = SceneDetector.align_range(highlight.start, highlight.end, scenes)
+        start = max(0.0, start)
+        if scenes:
+            video_duration = max(edge for scene in scenes for edge in scene)
+            end = min(video_duration, end)
+        if end <= start:
+            end = start + 0.1
+        return start, end
 
     def _extract_clip(self, video_path: Path, base_clip: Path, start: float, end: float, vf: str) -> None:
         self.clipper.extract_clip(video_path, base_clip, start, end, vf)
@@ -204,7 +227,6 @@ class ClipProcessor:
         self.captioner.write_srt(transcript, start, end, srt_path)
 
     def _generate_creative(self, highlight: HighlightSegment) -> dict[str, str]:
-        # Thread-local AI clients for thread safety.
         generator = HookThumbnailGenerator(self.cfg.openai_api_key)
         return generator.generate(
             clip_context=f"{highlight.rationale}\n{highlight.hook}", fallback_hook=highlight.hook
@@ -228,7 +250,6 @@ class ClipProcessor:
         rationale: str,
         hook_text: str,
     ) -> dict:
-        # Thread-local AI clients for thread safety.
         title_gen = TitleGenerator(self.cfg.openai_api_key)
         return title_gen.generate(
             f"Hook: {hook_text}\nRationale: {rationale}\nTranscript:\n{transcript_text}"
@@ -289,7 +310,9 @@ class ClipProcessor:
 
 
 class ClipProcessingStage:
-    """Render clips in parallel and aggregate metadata entries."""
+    """Prepare clip processing dependencies."""
+
+    name = "ClipProcessingStage"
 
     def __init__(self, cfg: AppConfig, paths: ClipPaths) -> None:
         self.cfg = cfg
@@ -304,17 +327,32 @@ class ClipProcessingStage:
             renderer=OverlayRenderer(),
         )
 
-    def run(self, ctx: PipelineContext) -> list[dict]:
+    def run(self, ctx: PipelineContext) -> PipelineContext:
+        # Keep stage explicit in pipeline; rendering happens in RenderStage.
+        return ctx
+
+    def get_processor(self) -> ClipProcessor:
+        return self._create_processor()
+
+
+class RenderStage:
+    """Render clips in parallel and collect metadata entries."""
+
+    name = "RenderStage"
+
+    def __init__(self, cfg: AppConfig, clip_processing_stage: ClipProcessingStage) -> None:
+        self.cfg = cfg
+        self.clip_processing_stage = clip_processing_stage
+
+    def run(self, ctx: PipelineContext) -> PipelineContext:
         assert ctx.video_path is not None
         assert ctx.transcript is not None
-        assert ctx.highlights is not None
-        assert ctx.scenes is not None
 
         metadata_entries: list[dict] = []
         with ThreadPoolExecutor(max_workers=self.cfg.batch_workers) as executor:
             futures = [
                 executor.submit(
-                    self._create_processor().process_clip,
+                    self.clip_processing_stage.get_processor().process_clip,
                     idx,
                     highlight,
                     ctx.video_path,
@@ -329,26 +367,29 @@ class ClipProcessingStage:
                 try:
                     metadata_entries.append(future.result())
                 except Exception as exc:  # noqa: BLE001
-                    logger.error("Clip processing failed: %s", exc)
+                    logger.error("Clip failed: %s", exc)
                     continue
 
-        return metadata_entries
+        ctx.metadata_entries = metadata_entries
+        return ctx
 
 
 class MetadataStage:
     """Finalize and write metadata output."""
 
+    name = "MetadataStage"
+
     def __init__(self, output_dir: Path) -> None:
         self.output_dir = output_dir
 
-    def run(self, entries: list[dict]) -> list[dict]:
-        entries.sort(key=lambda item: item["viral_score"]["total"], reverse=True)
+    def run(self, ctx: PipelineContext) -> PipelineContext:
+        ctx.metadata_entries.sort(key=lambda item: item["viral_score"]["total"], reverse=True)
         metadata_path = self.output_dir / "metadata.json"
-        metadata_path.write_text(json.dumps(entries, indent=2), encoding="utf-8")
-        return entries
+        metadata_path.write_text(json.dumps(ctx.metadata_entries, indent=2), encoding="utf-8")
+        return ctx
 
 
-class Pipeline:
+class PipelineRunner:
     """Stage-oriented clip generation pipeline."""
 
     def __init__(self, cfg: AppConfig) -> None:
@@ -379,44 +420,41 @@ class Pipeline:
             target_height=cfg.target_height,
         )
         self.clip_stage = ClipProcessingStage(cfg, self.paths)
+        self.render_stage = RenderStage(cfg, self.clip_stage)
         self.metadata_stage = MetadataStage(cfg.output_dir)
+
+        self.stages = [
+            self.download_stage,
+            self.audio_stage,
+            self.transcription_stage,
+            self.highlight_stage,
+            self.scene_stage,
+            self.clip_stage,
+            self.render_stage,
+            self.metadata_stage,
+        ]
 
     def run(self, url: str) -> None:
         """Execute all pipeline stages in original order."""
         ctx = PipelineContext(url=url)
-        steps = tqdm(total=7, desc="Pipeline", unit="step")
+        steps = tqdm(total=len(self.stages), desc="Pipeline", unit="step")
         try:
-            ctx = self.download_stage.run(ctx)
-            steps.update(1)
-
-            ctx = self.audio_stage.run(ctx)
-            steps.update(1)
-
-            ctx = self.transcription_stage.run(ctx)
-            steps.update(1)
-
-            ctx = self.highlight_stage.run(ctx)
-            steps.update(1)
-
-            ctx = self.scene_stage.run(ctx)
-            steps.update(1)
-
-            metadata_entries = self.clip_stage.run(ctx)
-            steps.update(1)
-
-            metadata_entries = self.metadata_stage.run(metadata_entries)
-            steps.update(1)
+            for stage in self.stages:
+                logger.info("Starting stage: %s", stage.name)
+                ctx = stage.run(ctx)
+                logger.info("Completed stage: %s", stage.name)
+                steps.update(1)
         finally:
             steps.close()
             if ctx.audio_path is not None:
                 safe_unlink(ctx.audio_path)
 
-        print(f"Done. Generated {len(metadata_entries)} clips in {self.cfg.output_dir}")
+        print(f"Done. Generated {len(ctx.metadata_entries)} clips in {self.cfg.output_dir}")
 
 
 def run_pipeline(url: str, cfg: AppConfig) -> None:
     """Backward-compatible pipeline entrypoint."""
-    Pipeline(cfg).run(url)
+    PipelineRunner(cfg).run(url)
 
 
 def parse_args() -> argparse.Namespace:
@@ -429,6 +467,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     """Command-line wrapper."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
     load_dotenv()
     args = parse_args()
 
