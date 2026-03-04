@@ -25,6 +25,7 @@ class YouTubeDownloader:
             "quiet": False,
             "socket_timeout": 30,
             "retries": 10,
+            "cookiefile": "cookies.txt",
         }
 
         delay = 1.0
