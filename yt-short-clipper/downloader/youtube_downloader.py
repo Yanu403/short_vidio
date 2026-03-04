@@ -37,7 +37,7 @@ class YouTubeDownloader:
     # IMPORTANT: fix youtube format extraction
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["android", "web"]
+                    "player_client": ["web"]
                 }
             },
         }
