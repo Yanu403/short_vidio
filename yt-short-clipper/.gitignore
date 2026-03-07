@@ -1,0 +1,55 @@
+# Environment variables and secrets
+.env
+.env.*
+
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Logs
+*.log
+
+# Video/audio/image outputs and archives
+output/
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.wav
+*.mp3
+*.jpg
+*.png
+*.zip
+
+# Temporary directories
+work/
+tmp/
+temp/
+.cache/
+
+# Model / AI cache
+cache/
+transcripts/
+models/
+
+# IDE settings
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Large data artifacts
+*.csv
+*.parquet
+*.npy
+
+#Cookies
+cookies.txt
+

@@ -2,49 +2,34 @@
 
 from __future__ import annotations
 
-import json
-import time
-
-from openai import OpenAI
+from utils.json_utils import safe_json_parse
 
 
 class TitleGenerator:
     """Generates title/description/hashtags for each clip."""
 
-    def __init__(self, api_key: str) -> None:
-        self.client = OpenAI(api_key=api_key)
+    def __init__(self) -> None:
+        pass
 
-    def _request(self, prompt: str, max_retries: int = 3) -> dict:
-        """Call OpenAI with bounded retries and exponential backoff."""
-        delay = 1.0
-        for attempt in range(max_retries):
-            try:
-                response = self.client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    temperature=0.6,
-                    response_format={"type": "json_object"},
-                    messages=[
-                        {"role": "system", "content": "You generate concise social metadata."},
-                        {"role": "user", "content": prompt},
-                    ],
-                )
-                return json.loads(response.choices[0].message.content)
-            except Exception:  # noqa: BLE001
-                if attempt == max_retries - 1:
-                    raise
-                time.sleep(delay)
-                delay *= 2
+    @staticmethod
+    def _extract_precomputed(clip_context: str) -> dict:
+        marker = "PRECOMPUTED_CLIP_JSON:"
+        if marker not in clip_context:
+            return {}
+        payload_text = clip_context.split(marker, 1)[1].strip()
+        parsed = safe_json_parse(payload_text)
+        if isinstance(parsed, dict):
+            return parsed
         return {}
 
     def generate(self, clip_context: str) -> dict:
-        """Return metadata dictionary for one clip."""
-        prompt = f"""
-Generate metadata for a short-form clip.
-Return strict JSON with keys title, description, hashtags.
-hashtags must be an array of hashtag strings.
-Context:
-{clip_context}
-"""
-        payload = self._request(prompt)
-        payload.setdefault("hashtags", ["#shorts", "#viral"])
-        return payload
+        """Return metadata dictionary from precomputed clip payload."""
+        precomputed = self._extract_precomputed(clip_context)
+        hashtags = precomputed.get("hashtags", ["#shorts", "#viral"])
+        if not isinstance(hashtags, list):
+            hashtags = ["#shorts", "#viral"]
+        return {
+            "title": str(precomputed.get("title", "")).strip(),
+            "description": str(precomputed.get("description", "")).strip(),
+            "hashtags": hashtags or ["#shorts", "#viral"],
+        }

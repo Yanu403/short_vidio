@@ -26,10 +26,26 @@ class CaptionGenerator:
         clip_start: float,
         clip_end: float,
         output_path: Path,
+        first_line: str = "",
     ) -> None:
         """Write subtitles trimmed to a clip timeline."""
         lines: list[str] = []
         idx = 1
+        duration = max(0.0, clip_end - clip_start)
+
+        first_line = first_line.strip()
+        if first_line and duration > 0.0:
+            hook_end = min(2.0, duration)
+            lines.extend(
+                [
+                    str(idx),
+                    f"{self._fmt(0.0)} --> {self._fmt(hook_end)}",
+                    first_line,
+                    "",
+                ]
+            )
+            idx += 1
+
         for seg in transcript:
             if seg.end < clip_start or seg.start > clip_end:
                 continue

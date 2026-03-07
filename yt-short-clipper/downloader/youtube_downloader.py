@@ -25,10 +25,15 @@ class YouTubeDownloader:
             "quiet": False,
             "socket_timeout": 30,
             "retries": 10,
+            "cookiefile":"cookies.txt",
             "nocheckcertificate": True,
+            # JS challenge solver
+            "js_runtime": "deno",
+            "remote_components": "ejs:github",
+
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["android", "tv", "web"]
+                    "player_client": ["tv", "web"]
                 }
             },
         }

@@ -36,6 +36,8 @@ class OverlayRenderer:
 
         cmd = [
             "ffmpeg",
+            "-loglevel",
+            "error",
             "-y",
             "-i",
             str(input_clip),
@@ -62,6 +64,8 @@ class OverlayRenderer:
         )
         cmd = [
             "ffmpeg",
+            "-loglevel",
+            "error",
             "-y",
             "-i",
             str(input_clip),
